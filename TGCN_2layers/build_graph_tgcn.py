@@ -1,35 +1,49 @@
-#!/usr/bin/env python
-# -*- coding:utf-8 -*-
+"""
+构建语义图，句法图和顺序图
+"""
 import os
 import pickle
 import pickle as pkl
 import random
 from math import log
-
 import numpy as np
 import scipy.sparse as sp
 
-# build corpus
+'''
+路径信息
+'''
+# 语料库路径
 dataset = 'mr'
 os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 os.path.abspath(os.path.dirname(os.getcwd()))
 os.path.abspath(os.path.join(os.getcwd(), ".."))
-input1 = os.sep.join(['..', 'data_tgcn', dataset, 'build_train', dataset])
+
+# 输入路径
+input1 = os.sep.join(['..', 'data_tgcn', dataset, 'build_train', dataset])  # 数据集
 input2 = os.sep.join(['..', 'data_tgcn', dataset, 'stanford'])
 input3 = os.sep.join(['..', 'data_tgcn', dataset, 'lstm'])
 input4 = os.sep.join(['..', 'data_tgcn', dataset, 'lstm', dataset])
-output1 = os.sep.join(['..', 'data_tgcn', dataset, 'build_train', dataset])
+
+# 输出路径
+output1 = os.sep.join(['..', 'data_tgcn', dataset, 'build_train', dataset])  # 数据集的输出路径
 output2 = os.sep.join(['..', 'data_tgcn', dataset, 'build_train'])
 
+'''
+参数信息
+'''
+# 参数：词嵌入的维度，滑动窗口的大小，词嵌入的字典(若为空，没有初始化的特征向量)
 word_embeddings_dim = 300
 window_size = 20
 word_vector_map = {}
 
-# shulffing
-doc_name_list = []
-doc_train_list = []
-doc_test_list = []
-
+'''
+读取数据集
+'''
+# 读取文档信息
+# eg: ["0	train	1", "1	train	1"]
+doc_name_list = []  # 所有文档
+doc_train_list = [] # 用于训练的文档
+doc_test_list = []  # 用于测试的文档
 f = open(input1 + '.txt', 'r', encoding='latin1')
 lines = f.readlines()
 for line in lines:
@@ -40,48 +54,44 @@ for line in lines:
     elif temp[1].find('train') != -1:
         doc_train_list.append(line.strip())
 f.close()
-# print(doc_train_list)
-# print(doc_test_list)
 
+# 读取文档原始文本
+# eg:["idiotic and ugly", ...]
 doc_content_list = []
 f = open(input1 + '.clean.txt', 'r')
 lines = f.readlines()
 for line in lines:
     doc_content_list.append(line.strip())
 f.close()
-# print(doc_content_list)
 
+# 提取用于训练的文档名称，并打乱顺序
 train_ids = []
 for train_name in doc_train_list:
     train_id = doc_name_list.index(train_name)
     train_ids.append(train_id)
-# print(train_ids)
 random.shuffle(train_ids)
 
-# partial labeled data
-# train_ids = train_ids[:int(0.2 * len(train_ids))]
-
+# 记录用于训练的文档名称，并用换行分隔
 train_ids_str = '\n'.join(str(index) for index in train_ids)
 f = open(output1 + '.train.index', 'w')
 f.write(train_ids_str)
 f.close()
 
+# 提取用于测试的文档名称，并打乱顺序
 test_ids = []
 for test_name in doc_test_list:
     test_id = doc_name_list.index(test_name)
     test_ids.append(test_id)
-# print(test_ids)
 random.shuffle(test_ids)
 
+# 记录用于测试的文档名称，并用换行分隔
 test_ids_str = '\n'.join(str(index) for index in test_ids)
 f = open(output1 + '.test.index', 'w')
 f.write(test_ids_str)
 f.close()
 
+# 构建打乱顺序后的文档名称和文档原始文本
 ids = train_ids + test_ids
-# print(ids)
-# print(len(ids))
-
 shuffle_doc_name_list = []
 shuffle_doc_words_list = []
 for id in ids:
@@ -90,6 +100,7 @@ for id in ids:
 shuffle_doc_name_str = '\n'.join(shuffle_doc_name_list)
 shuffle_doc_words_str = '\n'.join(shuffle_doc_words_list)
 
+# 记录打乱顺序的文档名称和文档原始文本
 f = open(output1 + '_doc_shuffle.txt', 'w')
 f.write(shuffle_doc_name_str)
 f.close()
@@ -98,8 +109,13 @@ f = open(output1 + '_word_shuffle.txt', 'w')
 f.write(shuffle_doc_words_str)
 f.close()
 
-# build vocab
+'''
+构建词汇表
+'''
+# 记录单词在整个语料库中出现的次数，
+# eg: {"miller":15, "tels":21, ...}
 word_freq = {}
+# 记录整个语料库中的单词, eg: {"to", "misses"}
 word_set = set()
 for doc_words in shuffle_doc_words_list:
     words = doc_words.split()
@@ -110,11 +126,13 @@ for doc_words in shuffle_doc_words_list:
         else:
             word_freq[word] = 1
 
+# 词汇表和词汇数量
 vocab = list(word_set)
 vocab_size = len(vocab)
 
+# 记录每个单词出现的文档索引，
+# eg: {"wang": [0, 6450, 7368, 10267], "xiaoshuai": [0], ....}
 word_doc_list = {}
-
 for i in range(len(shuffle_doc_words_list)):
     doc_words = shuffle_doc_words_list[i]
     words = doc_words.split()
@@ -130,118 +148,60 @@ for i in range(len(shuffle_doc_words_list)):
             word_doc_list[word] = [i]
         appeared.add(word)
 
+# 记录每个单词出现的文档的数量，
+# eg:{"wang": 4, "xiaoshuai": 1, ....}
 word_doc_freq = {}
 for word, doc_list in word_doc_list.items():
     word_doc_freq[word] = len(doc_list)
 
-word_id_map = {}
-id_word_map = {}
+# 建立词汇与id的字典和反向字典
+word_id_map = {} # {”1970s“: 0, ”behalf“: 1, ...}
+id_word_map = {} # {0: ”1970s“, 1: "behalf": 1}
 for i in range(vocab_size):
     word_id_map[vocab[i]] = i
     id_word_map[i] = vocab[i]
 
+# 记录词汇表，并用换行分隔
 vocab_str = '\n'.join(vocab)
-
 f = open(output1 + '_vocab.txt', 'w')
 f.write(vocab_str)
 f.close()
 
 '''
-Word definitions begin
+标签
 '''
-'''
-definitions = []
-
-for word in vocab:
-    word = word.strip()
-    synsets = wn.synsets(clean_str(word))
-    word_defs = []
-    for synset in synsets:
-        syn_def = synset.definition()
-        word_defs.append(syn_def)
-    word_des = ' '.join(word_defs)
-    if word_des == '':
-        word_des = '<PAD>'
-    definitions.append(word_des)
-
-string = '\n'.join(definitions)
-
-
-f = open('data/corpus/' + dataset + '_vocab_def.txt', 'w')
-f.write(string)
-f.close()
-
-tfidf_vec = TfidfVectorizer(max_features=1000)
-tfidf_matrix = tfidf_vec.fit_transform(definitions)
-tfidf_matrix_array = tfidf_matrix.toarray()
-print(tfidf_matrix_array[0], len(tfidf_matrix_array[0]))
-
-word_vectors = []
-
-for i in range(len(vocab)):
-    word = vocab[i]
-    vector = tfidf_matrix_array[i]
-    str_vector = []
-    for j in range(len(vector)):
-        str_vector.append(str(vector[j]))
-    temp = ' '.join(str_vector)
-    word_vector = word + ' ' + temp
-    word_vectors.append(word_vector)
-
-string = '\n'.join(word_vectors)
-
-f = open('data/corpus/' + dataset + '_word_vectors.txt', 'w')
-f.write(string)
-f.close()
-
-word_vector_file = 'data/corpus/' + dataset + '_word_vectors.txt'
-_, embd, word_vector_map = loadWord2Vec(word_vector_file)
-word_embeddings_dim = len(embd[0])
-'''
-
-'''
-Word definitions end
-'''
-
-# label list
+# 提取所有的标签
 label_set = set()
 for doc_meta in shuffle_doc_name_list:
     temp = doc_meta.split('\t')
     label_set.add(temp[2])
 label_list = list(label_set)
 
+# 记录标签信息
 label_list_str = '\n'.join(label_list)
 f = open(output1 + '_labels.txt', 'w')
 f.write(label_list_str)
 f.close()
 
 '''
-构建features
+构建特征
 '''
-
-# x: feature vectors of training docs, no initial features
-# slect 90% training set
-
-# word_vector_file = input1 + '_word_vectors.txt'
-# _, embd, word_vector_map = loadWord2Vec(word_vector_file)
-# word_embeddings_dim = len(embd[0])
-
-
+# 选取训练集中的 90% 用于训练
 train_size = len(train_ids)
 val_size = int(0.1 * train_size)
-real_train_size = train_size - val_size  # - int(0.5 * train_size)
-# different training rates
-
+real_train_size = train_size - val_size
 real_train_doc_names = shuffle_doc_name_list[:real_train_size]
-real_train_doc_names_str = '\n'.join(real_train_doc_names)
 
+# 记录用于训练的文档信息
+real_train_doc_names_str = '\n'.join(real_train_doc_names)
 f = open(output1 + '.real_train.name', 'w')
 f.write(real_train_doc_names_str)
 f.close()
 
-row_x = []
-col_x = []
-data_x = []
+# 构建用于训练的文档的特征向量x(压缩稀疏行矩阵)
+row_x = []  # 与每个文档词嵌入维度对应文档标号
+col_x = []  # 每个文档词嵌入的每个维度的编号
+data_x = []  # 每个文档词嵌入的每个维度的均值
 for i in range(real_train_size):
     doc_vec = np.array([0.0 for k in range(word_embeddings_dim)])
     doc_words = shuffle_doc_words_list[i]
@@ -250,20 +210,16 @@ for i in range(real_train_size):
     for word in words:
         if word in word_vector_map:
             word_vector = word_vector_map[word]
-            # print(doc_vec)
-            # print(np.array(word_vector))
-            doc_vec = doc_vec + np.array(word_vector)
-
+            doc_vec += np.array(word_vector)
     for j in range(word_embeddings_dim):
         row_x.append(i)
         col_x.append(j)
-        # np.random.uniform(-0.25, 0.25)
-        data_x.append(doc_vec[j] / doc_len)  # doc_vec[j]/ doc_len
+        data_x.append(doc_vec[j] / doc_len)
 
-# x = sp.csr_matrix((real_train_size, word_embeddings_dim), dtype=np.float32)
-x = sp.csr_matrix((data_x, (row_x, col_x)), shape=(
-    real_train_size, word_embeddings_dim))
+x = sp.csr_matrix((data_x, (row_x, col_x)), shape=(real_train_size, word_embeddings_dim))
 
+
+# 构建输出(独热编码)，eg: [[1 0], [0 1], [0 1], ...]
 y = []
 for i in range(real_train_size):
     doc_meta = shuffle_doc_name_list[i]
@@ -274,9 +230,8 @@ for i in range(real_train_size):
     one_hot[label_index] = 1
     y.append(one_hot)
 y = np.array(y)
-# print(y)
 
-# tx: feature vectors of test docs, no initial features
+# 构建测试文档的特征向量tx(压缩稀疏行矩阵)
 test_size = len(test_ids)
 
 row_tx = []
@@ -290,18 +245,16 @@ for i in range(test_size):
     for word in words:
         if word in word_vector_map:
             word_vector = word_vector_map[word]
-            doc_vec = doc_vec + np.array(word_vector)
+            doc_vec += np.array(word_vector)
 
     for j in range(word_embeddings_dim):
         row_tx.append(i)
         col_tx.append(j)
-        # np.random.uniform(-0.25, 0.25)
-        data_tx.append(doc_vec[j] / doc_len)  # doc_vec[j] / doc_len
+        data_tx.append(doc_vec[j] / doc_len)
 
-# tx = sp.csr_matrix((test_size, word_embeddings_dim), dtype=np.float32)
-tx = sp.csr_matrix((data_tx, (row_tx, col_tx)),
-                   shape=(test_size, word_embeddings_dim))
+tx = sp.csr_matrix((data_tx, (row_tx, col_tx)), shape=(test_size, word_embeddings_dim))
 
+# 构建输出(独热编码)，eg: [[1 0], [0 1], [0 1], ...]
 ty = []
 for i in range(test_size):
     doc_meta = shuffle_doc_name_list[i + train_size]
@@ -312,14 +265,9 @@ for i in range(test_size):
     one_hot[label_index] = 1
     ty.append(one_hot)
 ty = np.array(ty)
-# print(ty)
 
-# allx: the the feature vectors of both labeled and unlabeled training instances
-# (a superset of x)
-# unlabeled training instances -> words
-
-word_vectors = np.random.uniform(-0.01, 0.01,
-                                 (vocab_size, word_embeddings_dim))
+# allx: 所有的训练文档和所有的词汇的特征向量，x的超集
+word_vectors = np.random.uniform(-0.01, 0.01, (vocab_size, word_embeddings_dim))
 
 for i in range(len(vocab)):
     word = vocab[i]
@@ -330,7 +278,6 @@ for i in range(len(vocab)):
 row_allx = []
 col_allx = []
 data_allx = []
-
 for i in range(train_size):
     doc_vec = np.array([0.0 for k in range(word_embeddings_dim)])
     doc_words = shuffle_doc_words_list[i]
@@ -344,8 +291,8 @@ for i in range(train_size):
     for j in range(word_embeddings_dim):
         row_allx.append(int(i))
         col_allx.append(j)
-        # np.random.uniform(-0.25, 0.25)
-        data_allx.append(doc_vec[j] / doc_len)  # doc_vec[j]/doc_len
+        data_allx.append(doc_vec[j] / doc_len)
+
 for i in range(vocab_size):
     for j in range(word_embeddings_dim):
         row_allx.append(int(i + train_size))
@@ -356,9 +303,9 @@ row_allx = np.array(row_allx)
 col_allx = np.array(col_allx)
 data_allx = np.array(data_allx)
 
-allx = sp.csr_matrix(
-    (data_allx, (row_allx, col_allx)), shape=(train_size + vocab_size, word_embeddings_dim))
+allx = sp.csr_matrix((data_allx, (row_allx, col_allx)), shape=(train_size + vocab_size, word_embeddings_dim))
 
+# 所有训练文档和所有词汇的输出 y
 ally = []
 for i in range(train_size):
     doc_meta = shuffle_doc_name_list[i]
@@ -377,7 +324,7 @@ ally = np.array(ally)
 
 print(x.shape, y.shape, tx.shape, ty.shape, allx.shape, ally.shape)
 
-# dump objects
+# 记录信息
 f = open(output2 + "/ind.{}.x".format(dataset), 'wb')
 pkl.dump(x, f)
 f.close()
@@ -406,7 +353,7 @@ f.close()
 Doc word heterogeneous graph 1
 '''
 
-# word co-occurence with context windows
+# 单词之间的局部共现语言属性
 windows = []
 
 for doc_words in shuffle_doc_words_list:
@@ -415,11 +362,9 @@ for doc_words in shuffle_doc_words_list:
     if length <= window_size:
         windows.append(words)
     else:
-        # print(length, length - window_size + 1)
         for j in range(length - window_size + 1):
             window = words[j: j + window_size]
             windows.append(window)
-            # print(window)
 
 word_window_freq = {}
 for window in windows:
@@ -461,7 +406,7 @@ weight = []
 weight1 = []
 weight2 = []
 
-# 根据stanford句法依存构建边权重
+# 根据stanford句法依存构建边权重 dict {"like,moore":2, "moore,like":2, "progressive,moore": 1}
 data1 = pickle.load(open(input2 + "/{}_pair_stan.pkl".format(dataset), "rb"))
 max_count1 = 0.0
 min_count1 = 0.0
@@ -476,7 +421,7 @@ count_mean1 = np.mean(count1)
 count_var1 = np.var(count1)
 count_std1 = np.std(count1, ddof=1)
 
-# 根据语义依存构建边权重
+# 根据语义依存构建边权重 dict {",moore":22, ",is": 1967, ",like": 492}
 data2 = pickle.load(open(input4 + "_semantic_0.05.pkl", "rb"))
 max_count2 = 0.0
 min_count2 = 0.0
@@ -534,19 +479,7 @@ for key in word_pair_count:
     else:
         weight2.append(pmi)
 
-'''
-for i in range(vocab_size):
-    for j in range(vocab_size):
-        if vocab[i] in word_vector_map and vocab[j] in word_vector_map:
-            vector_i = np.array(word_vector_map[vocab[i]])
-            vector_j = np.array(word_vector_map[vocab[j]])
-            similarity = 1.0 - cosine(vector_i, vector_j)
-            if similarity > 0.9:
-                print(vocab[i], vocab[j], similarity)
-                row.append(train_size + i)
-                col.append(train_size + j)
-                weight.append(similarity)
-'''
+
 # doc word frequency
 weight_tfidf = []
 doc_word_freq = {}
